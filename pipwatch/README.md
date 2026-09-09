@@ -19,6 +19,26 @@ No installation, no internet connection required after you've unzipped the folde
 (the chart library is bundled locally in `vendor/`, and the Inter/JetBrains Mono
 fonts will fall back to your system fonts if you're offline).
 
+### "Standalone app" window
+
+If Chrome, Edge, or Brave is installed, the launch scripts now open Pipwatch
+in **app mode**: its own window with no address bar, tabs, or browser chrome,
+so it behaves like a regular desktop app rather than a browser tab. It uses a
+small dedicated browser profile stored next to the app (a hidden
+`.pipwatch-app-profile` folder), so it reliably reopens the same window and
+data every time, independent of whatever your everyday default-browser
+profile is doing.
+
+This is genuinely a browser window under the hood, not a compiled desktop
+binary — a true native `.app`/`.exe` would require packaging the app with
+something like Electron and a full build step, which isn't something this
+folder can produce on its own. App mode is the closest practical equivalent
+without that build process: no visible browser UI, its own taskbar/dock icon
+and window, launched with a double-click.
+
+If none of those browsers are found, the scripts fall back to opening
+`index.html` in whatever your normal default browser is, exactly as before.
+
 ## Where your data lives
 
 Everything — accounts, trades, and chart-screenshot uploads — is saved in your
@@ -31,12 +51,31 @@ That means:
   start with an empty journal (the old data is still sitting in the old
   browser profile, just not linked to the new location).
 - Clearing your browser's site data/cookies for local files will erase it.
-- There's currently no built-in export/import — if you want a backup, use your
-  browser's DevTools console and run:
-  `copy(JSON.stringify(localStorage))` to copy everything to your clipboard.
 
 Because of this, treat this folder as the "installation" — keep it in one
-stable place once you start logging real trades.
+stable place once you start logging real trades, and back up your data
+regularly (see below).
+
+## Backing up your data (export / import)
+
+Go to the **Accounts** tab:
+
+- **Export backup** downloads a single `.json` file containing every account,
+  every trade, and every attached chart screenshot. Keep this file somewhere
+  outside the browser (cloud drive, external disk, etc.) — it's your real
+  backup, since local storage can be wiped by clearing browser data.
+- **Import backup** lets you pick a previously exported `.json` file and
+  restores it. This **replaces** whatever accounts/trades currently exist in
+  this browser, so export a fresh backup first if you want to keep the
+  current data too. You'll get a confirmation prompt before anything is
+  overwritten.
+- If you haven't created an account yet, the first-run screen also has an
+  "Or import a backup file" option, so you can restore straight into a fresh
+  install/folder/browser.
+
+This is also how you move your journal to a new computer, a new browser, or
+after renaming/moving this folder: export from the old location, import into
+the new one.
 
 ## P/L auto-calculation
 

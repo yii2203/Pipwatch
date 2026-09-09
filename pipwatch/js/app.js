@@ -23,11 +23,13 @@ function computeStats(trades) {
   const pnl = trades.reduce((s, t) => s + Number(t.pnl || 0), 0);
   const wins = trades.filter(t => Number(t.pnl) > 0);
   const losses = trades.filter(t => Number(t.pnl) < 0);
-  const winRate = total ? (wins.length / total) * 100 : 0;
+  const breakevens = trades.filter(t => Number(t.pnl) === 0);
+  const decided = wins.length + losses.length; // excludes breakevens — they're neither a win nor a loss
+  const winRate = decided ? (wins.length / decided) * 100 : 0;
   const grossWin = wins.reduce((s, t) => s + Number(t.pnl), 0);
   const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.pnl), 0));
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
-  return { total, pnl, winRate, profitFactor, wins: wins.length, losses: losses.length };
+  return { total, pnl, winRate, profitFactor, wins: wins.length, losses: losses.length, breakevens: breakevens.length };
 }
 
 function escapeHtml(s) {
@@ -73,6 +75,32 @@ function showToast(msg) {
   setTimeout(() => { const t = document.querySelector('.toast'); if (t) t.remove(); }, 5000);
 }
 
+// Rewriting a container's innerHTML while the user is mid-keystroke inside it
+// destroys and recreates the input node, which drops focus (so only one
+// character ever lands before the field unfocuses). This helper remembers
+// which field had focus (and the cursor position) before the rewrite, then
+// restores both afterwards, so forms that re-render on every keystroke
+// (needed here for live validation / auto-calculated fields) stay usable.
+function setInnerHTMLPreserveFocus(containerId, html) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const active = document.activeElement;
+  let saved = null;
+  if (active && active.id && container.contains(active)) {
+    let start = null, end = null;
+    try { start = active.selectionStart; end = active.selectionEnd; } catch (e) { /* not all input types support selection */ }
+    saved = { id: active.id, start, end };
+  }
+  container.innerHTML = html;
+  if (saved) {
+    const el = document.getElementById(saved.id);
+    if (el) {
+      el.focus();
+      if (saved.start != null) { try { el.setSelectionRange(saved.start, saved.end); } catch (e) { /* ignore */ } }
+    }
+  }
+}
+
 /* ---------------------------------- state ---------------------------------- */
 
 const State = {
@@ -95,6 +123,64 @@ loadTradesForCurrent();
 
 function persistAccounts() { if (!Storage.saveAccounts(State.accounts)) showToast("Couldn't save accounts — your browser storage may be full."); }
 function persistTrades() { if (!Storage.saveTrades(State.currentAccountId, State.trades)) showToast("Couldn't save trade — your browser storage may be full."); }
+
+/* ---------------------------------- backup: export / import ---------------------------------- */
+
+function exportBackup() {
+  let data;
+  try { data = Storage.exportAll(); }
+  catch (e) { showToast("Couldn't build a backup."); return; }
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `pipwatch-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  showToast('Backup downloaded.');
+}
+
+function triggerImportBackup() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.style.display = 'none';
+  input.onchange = () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data;
+      try { data = JSON.parse(reader.result); }
+      catch (e) { showToast("That file isn't valid JSON."); return; }
+      if (!data || !Array.isArray(data.accounts)) { showToast("That doesn't look like a Pipwatch backup file."); return; }
+      const n = data.accounts.length;
+      const ok = confirm(
+        `Import ${n} account${n !== 1 ? 's' : ''} from this backup?\n\n` +
+        `This will REPLACE all accounts and trades currently stored in this browser. ` +
+        `This can't be undone — export a backup of your current data first if you want to keep it.`
+      );
+      if (!ok) return;
+      try { Storage.importAll(data); }
+      catch (e) { showToast('Import failed: ' + e.message); return; }
+      State.accounts = Storage.getAccounts();
+      State.currentAccountId = State.accounts[0]?.id || null;
+      State.accountPickerOpen = false;
+      loadTradesForCurrent();
+      renderAll();
+      showToast('Backup imported.');
+    };
+    reader.onerror = () => showToast("Couldn't read that file.");
+    reader.readAsText(file);
+  };
+  document.body.appendChild(input);
+  input.click();
+}
 
 /* ---------------------------------- account actions ---------------------------------- */
 
@@ -164,6 +250,9 @@ function renderAll() {
           <h1 style="font-size:18px;font-weight:600;margin-bottom:8px;">Set up your first account</h1>
           <p style="font-size:14px;color:var(--dim);margin-bottom:20px;">Create a live or backtesting account to start logging trades. Each account keeps its own trade history, calendar, and stats.</p>
           <button class="btn btn-accent" onclick="openAccountModal()">Create account</button>
+          <div style="margin-top:12px;">
+            <button class="btn btn-ghost" onclick="triggerImportBackup()">⭱ Or import a backup file</button>
+          </div>
         </div>
       </div>`;
     return;
@@ -228,12 +317,21 @@ function renderDashboard() {
   if (!State.trades.length) return `<div class="empty-state">No trades logged yet for this account. Click "Log trade" to add your first one.</div>`;
   const sorted = [...State.trades].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const maxWindow = sorted.length;
-  if (!State.chartWindow || State.chartWindow > maxWindow) State.chartWindow = Math.min(30, maxWindow);
+  const minWindow = Math.min(5, maxWindow);
+  // Keep the stored window in sync with the slider's actual [min, max] range.
+  // Switching accounts changes maxWindow (and sometimes minWindow) without
+  // resetting State.chartWindow, so a value that was valid for the last
+  // account can end up below the new slider's min — the slider then visually
+  // snaps to its min while the chart keeps using the old, smaller window,
+  // so the two disagree and the curve looks wrong/too short.
+  if (!State.chartWindow || State.chartWindow > maxWindow || State.chartWindow < minWindow) {
+    State.chartWindow = Math.min(30, maxWindow);
+  }
   const recent = [...State.trades].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   return `
     <div class="grid-stats">
       <div class="card"><div class="stat-label">Net P/L</div><div class="stat-value ${stats.pnl >= 0 ? 'profit' : 'loss'}">${fmtMoney(stats.pnl)}</div></div>
-      <div class="card"><div class="stat-label">Win rate</div><div class="stat-value">${stats.winRate.toFixed(1)}%</div><div class="stat-sub">${stats.wins}W / ${stats.losses}L</div></div>
+      <div class="card"><div class="stat-label">Win rate</div><div class="stat-value">${stats.winRate.toFixed(1)}%</div><div class="stat-sub">${stats.wins}W / ${stats.losses}L${stats.breakevens ? ' / ' + stats.breakevens + ' BE' : ''}</div></div>
       <div class="card"><div class="stat-label">Total trades</div><div class="stat-value">${stats.total}</div></div>
       <div class="card"><div class="stat-label">Profit factor</div><div class="stat-value">${stats.profitFactor === Infinity ? '∞' : stats.profitFactor.toFixed(2)}</div></div>
     </div>
@@ -242,7 +340,7 @@ function renderDashboard() {
         <div class="panel-title" style="margin-bottom:0;">Equity curve</div>
         <div class="chart-slider-wrap">
           <span>Last</span>
-          <input type="range" min="${Math.min(5, maxWindow)}" max="${maxWindow}" value="${State.chartWindow}" oninput="updateChartWindow(this.value)">
+          <input type="range" min="${minWindow}" max="${maxWindow}" value="${State.chartWindow}" oninput="updateChartWindow(this.value)">
           <span class="mono" style="color:var(--accent);" id="chartWindowLabel">${State.chartWindow}</span>
           <span>trades</span>
         </div>
@@ -284,7 +382,7 @@ function initChart() {
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + fmtMoney(ctx.parsed.y) } } },
       scales: {
         x: { title: { display: true, text: 'Trade #', color: '#82879A' }, ticks: { color: '#82879A', font: { size: 10 } }, grid: { color: '#20232C' } },
-        y: { ticks: { color: '#82879A', font: { size: 10 }, callback: (v) => '$' + v }, grid: { color: '#20232C' } },
+        y: { ticks: { color: '#82879A', font: { size: 10 }, callback: (v) => (v < 0 ? '-$' + Math.abs(v) : '$' + v) }, grid: { color: '#20232C' } },
       },
     },
   });
@@ -498,9 +596,12 @@ function attachLogImageLoads() {
 
 function renderAccounts() {
   return `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn btn-ghost" onclick="exportBackup()">⭳ Export backup</button>
+      <button class="btn btn-ghost" onclick="triggerImportBackup()">⭱ Import backup</button>
       <button class="btn btn-accent" onclick="openAccountModal()">+ New account</button>
     </div>
+    <p style="font-size:11.5px;color:var(--dim2);margin:-6px 0 14px;">Backups are plain JSON files (accounts, trades, and chart screenshots included) — keep a copy somewhere outside this browser.</p>
     <div class="acc-grid">
       ${State.accounts.map(a => {
         const trades = Storage.getTrades(a.id);
@@ -594,28 +695,35 @@ function openTradeModal(editId) {
   }
 }
 
+function tradeFormResolvedPair(f) { return f.pair === 'Custom' ? (f.customPair.trim() || 'Custom') : f.pair; }
+function tradeFormLotsError(f) {
+  if (f.lots === '') return '';
+  const n = Number(f.lots);
+  if (isNaN(n) || n <= 0) return 'Lot size must be a number greater than 0';
+  if (n > 500) return "That's a very large lot size — double-check it";
+  return '';
+}
+
 function renderTradeModal() {
   const f = window._tradeForm;
-  const resolvedPair = f.pair === 'Custom' ? (f.customPair.trim() || 'Custom') : f.pair;
+  const resolvedPair = tradeFormResolvedPair(f);
   const support = pnlSupport(resolvedPair);
-  const lotsNum = f.lots === '' ? null : Number(f.lots);
-  const lotsError = f.lots !== '' && (isNaN(lotsNum) || lotsNum <= 0) ? 'Lot size must be a number greater than 0'
-    : f.lots !== '' && lotsNum > 500 ? "That's a very large lot size — double-check it" : '';
+  const lotsError = tradeFormLotsError(f);
 
-  document.getElementById('modalRoot').innerHTML = `
+  const html = `
     <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
       <div class="modal wide">
         <div class="modal-head"><div class="modal-title">${f.id ? 'Edit trade' : 'Log trade'}</div><button class="icon-btn" onclick="closeModal()">×</button></div>
 
         <div class="row-2">
-          <div class="field"><label>Date</label><input type="date" value="${f.date}" oninput="updateTradeField('date',this.value)">
-            <div class="field-hint">${dayOfWeek(f.date)}</div>
+          <div class="field"><label>Date</label><input id="tf-date" type="date" value="${f.date}" oninput="handleDateInput(this.value)">
+            <div class="field-hint" id="tf-date-hint">${f.date ? dayOfWeek(f.date) : ''}</div>
           </div>
           <div class="field"><label>Pair / instrument</label>
             <select onchange="updateTradeField('pair',this.value)">${PAIRS.map(p => `<option value="${p}" ${f.pair === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
           </div>
         </div>
-        ${f.pair === 'Custom' ? `<div class="field"><label>Custom pair name</label><input value="${escapeHtml(f.customPair)}" oninput="updateTradeField('customPair',this.value)" placeholder="e.g. USDMXN"></div>` : ''}
+        ${f.pair === 'Custom' ? `<div class="field"><label>Custom pair name</label><input id="tf-customPair" value="${escapeHtml(f.customPair)}" oninput="handleCustomPairInput(this.value)" placeholder="e.g. USDMXN"></div>` : ''}
 
         <div class="field"><label>Direction</label>
           <div class="toggle-group">
@@ -625,23 +733,23 @@ function renderTradeModal() {
         </div>
 
         <div class="row-3">
-          <div class="field"><label>Entry price</label><input type="number" step="any" value="${f.entry}" oninput="updateTradeField('entry',this.value)"></div>
-          <div class="field"><label>Exit price</label><input type="number" step="any" value="${f.exit}" oninput="updateTradeField('exit',this.value)"></div>
-          <div class="field"><label>Lot size</label><input type="number" step="0.01" min="0.01" class="${lotsError ? 'field-error' : ''}" value="${f.lots}" oninput="updateTradeField('lots',this.value)">
-            ${lotsError ? `<div class="field-error-text">${lotsError}</div>` : ''}
+          <div class="field"><label>Entry price</label><input id="tf-entry" type="number" step="any" value="${f.entry}" oninput="handlePriceInput('entry',this.value)"></div>
+          <div class="field"><label>Exit price</label><input id="tf-exit" type="number" step="any" value="${f.exit}" oninput="handlePriceInput('exit',this.value)"></div>
+          <div class="field"><label>Lot size</label><input id="tf-lots" type="number" step="0.01" min="0.01" class="${lotsError ? 'field-error' : ''}" value="${f.lots}" oninput="handleLotsInput(this.value)">
+            <span id="tf-lots-error">${lotsError ? `<div class="field-error-text">${lotsError}</div>` : ''}</span>
           </div>
         </div>
 
         <div class="field">
-          <label>Profit / loss ($)${support !== 'manual' && !f.pnlTouched ? ' · auto-calculated' : ''}</label>
-          <input type="number" step="any" value="${f.pnl}" oninput="updateTradePnl(this.value)" placeholder="e.g. 145.50 or -80">
-          ${support === 'manual' ? `<div class="field-hint">Cross-currency pairs need a live conversion rate we don't have — enter P/L manually.</div>` : ''}
-          ${support !== 'manual' && f.pnlTouched ? `<div class="field-hint"><a href="#" onclick="recalcPnl();return false;">Recalculate from entry/exit/lots</a></div>` : ''}
+          <label id="tf-pnl-label">Profit / loss ($)${support !== 'manual' && !f.pnlTouched ? ' · auto-calculated' : ''}</label>
+          <input id="tf-pnl" type="number" step="any" value="${f.pnl}" oninput="handlePnlInput(this.value)" placeholder="e.g. 145.50 or -80">
+          <span id="tf-pnl-hint">${support === 'manual' ? `<div class="field-hint">Cross-currency pairs need a live conversion rate we don't have — enter P/L manually.</div>`
+            : (f.pnlTouched ? `<div class="field-hint"><a href="#" onclick="recalcPnl();return false;">Recalculate from entry/exit/lots</a></div>` : '')}</span>
         </div>
 
         <div class="row-2">
-          <div class="field"><label>Risk % of account (optional)</label><input type="number" step="any" value="${f.riskPercent}" oninput="updateTradeField('riskPercent',this.value)" placeholder="e.g. 1"></div>
-          <div class="field"><label>Reward multiple, R (optional)</label><input type="number" step="any" value="${f.rewardMultiple}" oninput="updateTradeField('rewardMultiple',this.value)" placeholder="e.g. 2 = 1:2"></div>
+          <div class="field"><label>Risk % of account (optional)</label><input id="tf-riskPercent" type="number" step="any" value="${f.riskPercent}" oninput="handleSimpleField('riskPercent',this.value)" placeholder="e.g. 1"></div>
+          <div class="field"><label>Reward multiple, R (optional)</label><input id="tf-rewardMultiple" type="number" step="any" value="${f.rewardMultiple}" oninput="handleSimpleField('rewardMultiple',this.value)" placeholder="e.g. 2 = 1:2"></div>
         </div>
 
         <div class="row-2">
@@ -662,25 +770,100 @@ function renderTradeModal() {
             : `<label class="img-upload-label">🖼 <span id="imgUploadLabel">Upload chart screenshot</span><input type="file" accept="image/*" style="display:none;" onchange="handleTradeImage(this.files[0])"></label>`}
         </div>
 
-        <div class="field"><label>Notes (optional)</label><textarea rows="2" oninput="updateTradeField('notes',this.value)" placeholder="Setup, mistakes, what you'd do differently…">${escapeHtml(f.notes)}</textarea></div>
+        <div class="field"><label>Notes (optional)</label><textarea id="tf-notes" rows="2" oninput="handleSimpleField('notes',this.value)" placeholder="Setup, mistakes, what you'd do differently…">${escapeHtml(f.notes)}</textarea></div>
 
-        <button class="btn btn-accent" style="width:100%;justify-content:center;" ${(!f.date || f.pnl === '' || lotsError) ? 'disabled' : ''} onclick="submitTradeForm()">${f.id ? 'Save changes' : 'Add trade'}</button>
+        <button id="tf-submit-btn" class="btn btn-accent" style="width:100%;justify-content:center;" ${(!f.date || f.pnl === '' || lotsError) ? 'disabled' : ''} onclick="submitTradeForm()">${f.id ? 'Save changes' : 'Add trade'}</button>
       </div>
     </div>
   `;
+  setInnerHTMLPreserveFocus('modalRoot', html);
 }
 
+// --- Fields that change other on-screen values (auto-calculated P/L, error
+// text, hints, the submit button) update ONLY those specific elements
+// directly via the DOM, instead of calling renderTradeModal(). Rebuilding
+// the whole modal on every keystroke destroys and recreates the input the
+// person is actively typing in, which not only drops focus but — for
+// input types like number/date that don't support setSelectionRange at
+// all — snaps the cursor back to the front of the field on every character.
+// Fields with no on-screen dependents (notes, risk %, reward multiple) just
+// update state and don't touch the DOM at all.
+
+function refreshSubmitButton() {
+  const f = window._tradeForm;
+  const btn = document.getElementById('tf-submit-btn');
+  if (btn) btn.disabled = !f.date || f.pnl === '' || !!tradeFormLotsError(f);
+}
+
+function refreshPnlComputed() {
+  const f = window._tradeForm;
+  const support = pnlSupport(tradeFormResolvedPair(f));
+  const pnlInput = document.getElementById('tf-pnl');
+  if (pnlInput && document.activeElement !== pnlInput) pnlInput.value = f.pnl;
+  const labelEl = document.getElementById('tf-pnl-label');
+  if (labelEl) labelEl.textContent = 'Profit / loss ($)' + (support !== 'manual' && !f.pnlTouched ? ' · auto-calculated' : '');
+  const hintEl = document.getElementById('tf-pnl-hint');
+  if (hintEl) {
+    hintEl.innerHTML = support === 'manual'
+      ? `<div class="field-hint">Cross-currency pairs need a live conversion rate we don't have — enter P/L manually.</div>`
+      : (f.pnlTouched ? `<div class="field-hint"><a href="#" onclick="recalcPnl();return false;">Recalculate from entry/exit/lots</a></div>` : '');
+  }
+  refreshSubmitButton();
+}
+
+function refreshLotsError() {
+  const f = window._tradeForm;
+  const lotsError = tradeFormLotsError(f);
+  const input = document.getElementById('tf-lots');
+  if (input) input.classList.toggle('field-error', !!lotsError);
+  const errEl = document.getElementById('tf-lots-error');
+  if (errEl) errEl.innerHTML = lotsError ? `<div class="field-error-text">${lotsError}</div>` : '';
+  refreshSubmitButton();
+}
+
+function handleDateInput(val) {
+  window._tradeForm.date = val;
+  const hint = document.getElementById('tf-date-hint');
+  if (hint) hint.textContent = val ? dayOfWeek(val) : '';
+  refreshSubmitButton();
+}
+function handleCustomPairInput(val) {
+  window._tradeForm.customPair = val;
+  maybeRecalcPnl();
+  refreshPnlComputed();
+}
+function handlePriceInput(key, val) {
+  window._tradeForm[key] = val;
+  maybeRecalcPnl();
+  refreshPnlComputed();
+}
+function handleLotsInput(val) {
+  window._tradeForm.lots = val;
+  maybeRecalcPnl();
+  refreshPnlComputed();
+  refreshLotsError();
+}
+function handlePnlInput(val) {
+  window._tradeForm.pnl = val;
+  window._tradeForm.pnlTouched = true;
+  refreshPnlComputed();
+}
+function handleSimpleField(key, val) { window._tradeForm[key] = val; }
+
+// Fields below are set via onchange/onclick (a discrete action, not
+// continuous typing), so a full re-render doesn't cause the focus/cursor
+// problems described above — and some of them (switching to "Custom" pair)
+// change which fields exist on the form, which needs a full rebuild anyway.
 function updateTradeField(key, val) {
   window._tradeForm[key] = val;
-  if (['entry', 'exit', 'lots', 'direction', 'pair', 'customPair'].includes(key)) maybeRecalcPnl();
+  if (['direction', 'pair'].includes(key)) maybeRecalcPnl();
   renderTradeModal();
 }
-function updateTradePnl(val) { window._tradeForm.pnl = val; window._tradeForm.pnlTouched = true; renderTradeModal(); }
-function recalcPnl() { window._tradeForm.pnlTouched = false; maybeRecalcPnl(); renderTradeModal(); }
+function recalcPnl() { window._tradeForm.pnlTouched = false; maybeRecalcPnl(); refreshPnlComputed(); }
 function maybeRecalcPnl() {
   const f = window._tradeForm;
   if (f.pnlTouched) return;
-  const pair = f.pair === 'Custom' ? (f.customPair.trim() || 'Custom') : f.pair;
+  const pair = tradeFormResolvedPair(f);
   const entry = f.entry === '' ? null : Number(f.entry);
   const exit = f.exit === '' ? null : Number(f.exit);
   const lots = f.lots === '' ? null : Number(f.lots);

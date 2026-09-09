@@ -30,4 +30,40 @@ const Storage = {
   deleteImage(tradeId) {
     localStorage.removeItem('pw:img:' + tradeId);
   },
+
+  // Bundles every account, all of their trades, and every attached chart
+  // image into one plain object suitable for JSON.stringify — used for the
+  // "Export backup" feature so people aren't locked into this browser/folder.
+  exportAll() {
+    const accounts = Storage.getAccounts();
+    const data = { app: 'pipwatch', version: 1, exportedAt: new Date().toISOString(), accounts, trades: {}, images: {} };
+    accounts.forEach(acc => {
+      const trades = Storage.getTrades(acc.id);
+      data.trades[acc.id] = trades;
+      trades.forEach(t => {
+        if (t.hasImage) {
+          const img = Storage.getImage(t.id);
+          if (img) data.images[t.id] = img;
+        }
+      });
+    });
+    return data;
+  },
+
+  // Restores a backup produced by exportAll(). Replaces whatever accounts
+  // and trades currently exist in this browser's local storage.
+  importAll(data) {
+    if (!data || typeof data !== 'object' || !Array.isArray(data.accounts)) {
+      throw new Error('That file doesn\'t look like a Pipwatch backup.');
+    }
+    if (!Storage.saveAccounts(data.accounts)) throw new Error('Could not write accounts to storage.');
+    data.accounts.forEach(acc => {
+      const trades = (data.trades && Array.isArray(data.trades[acc.id])) ? data.trades[acc.id] : [];
+      Storage.saveTrades(acc.id, trades);
+    });
+    if (data.images && typeof data.images === 'object') {
+      Object.keys(data.images).forEach(tradeId => Storage.saveImage(tradeId, data.images[tradeId]));
+    }
+    return true;
+  },
 };

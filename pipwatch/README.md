@@ -19,26 +19,6 @@ No installation, no internet connection required after you've unzipped the folde
 (the chart library is bundled locally in `vendor/`, and the Inter/JetBrains Mono
 fonts will fall back to your system fonts if you're offline).
 
-### "Standalone app" window
-
-If Chrome, Edge, or Brave is installed, the launch scripts now open Pipwatch
-in **app mode**: its own window with no address bar, tabs, or browser chrome,
-so it behaves like a regular desktop app rather than a browser tab. It uses a
-small dedicated browser profile stored next to the app (a hidden
-`.pipwatch-app-profile` folder), so it reliably reopens the same window and
-data every time, independent of whatever your everyday default-browser
-profile is doing.
-
-This is genuinely a browser window under the hood, not a compiled desktop
-binary — a true native `.app`/`.exe` would require packaging the app with
-something like Electron and a full build step, which isn't something this
-folder can produce on its own. App mode is the closest practical equivalent
-without that build process: no visible browser UI, its own taskbar/dock icon
-and window, launched with a double-click.
-
-If none of those browsers are found, the scripts fall back to opening
-`index.html` in whatever your normal default browser is, exactly as before.
-
 ## Where your data lives
 
 Everything — accounts, trades, and chart-screenshot uploads — is saved in your
@@ -93,21 +73,58 @@ This is a standard-lot approximation — always cross-check against your broker'
 actual statement, especially for swap/rollover fees, commissions, and
 non-standard contract sizes, none of which are factored in here.
 
+## Multiple take-profit levels
+
+If you scale out of a trade in parts, the trade form has an optional
+"Take-profit levels" section — add one row per level and set its outcome
+(target hit, stopped out, breakeven, etc.) independently.
+
+For win-rate purposes: **if any one level hit its target, the whole trade
+counts as a win** — even if a later level only broke even, or the overall
+$ P/L ends up flat/negative after costs. You still got paid on part of it,
+so it counts. Breakeven trades (no level hit target, net P/L is exactly
+$0) still don't count toward win rate's denominator at all — see below.
+Trades that don't use this section are scored the old way: win if the
+overall $ P/L is positive, loss if it's negative.
+
+## Win rate
+
+Win rate only counts decided trades — wins ÷ (wins + losses). Breakeven
+trades aren't a win or a loss, so they're left out of both sides of that
+fraction entirely rather than counting against you. The stat card under
+Dashboard shows the breakeven count alongside wins/losses so it's visible
+they're being excluded.
+
 ## Folder structure
 
 ```
 pipwatch/
-├── index.html              — app shell
-├── css/styles.css          — all styling
+├── index.html                  — app shell + the <script> tags that load everything below, in order
+├── css/styles.css              — all styling
 ├── js/
-│   ├── storage.js          — localStorage read/write helpers
-│   ├── pnl.js               — pip/lot P&L calculation logic
-│   └── app.js               — application state, rendering, event handling
-├── vendor/chart.umd.min.js — bundled Chart.js (offline, no CDN)
+│   ├── README.md               — a map of what's in each file + how the code fits together
+│   ├── storage.js               — localStorage read/write helpers
+│   ├── pnl.js                   — pair list + pip/lot P&L calculation logic
+│   ├── 01-helpers.js            — formatting, stats (win rate/profit factor), misc utilities
+│   ├── 02-state.js              — the State object (single source of truth for the UI)
+│   ├── 03-backup.js             — export/import backup .json
+│   ├── 04-accounts.js           — accounts: create/switch/delete, Accounts tab, "new account" popup
+│   ├── 05-trades.js             — saving/deleting a trade in State
+│   ├── 06-layout.js             — sidebar, topbar, tab switching, renderAll()
+│   ├── 07-dashboard.js          — Dashboard tab (stats, equity curve)
+│   ├── 08-calendar.js           — Calendar tab
+│   ├── 09-performance.js        — Performance tab (year/month/week breakdown)
+│   ├── 10-log.js                — Trade Log tab
+│   ├── 11-trade-modal.js        — the "Log trade" / "Edit trade" form, incl. multiple TP levels
+│   └── 12-main.js               — draws the first screen (loaded last)
+├── vendor/chart.umd.min.js     — bundled Chart.js (offline, no CDN)
 ├── Launch-Mac-Linux.command
 ├── Launch-Windows.bat
+├── .gitignore                  — keeps exported backups / OS junk out of git, if you put this in a repo
 └── README.md
 ```
 
 No React, no npm, no bundler — plain HTML/CSS/JS, so you (or anyone) can open
-and edit any file directly in a text editor.
+and edit any file directly in a text editor. **New to the code?** Start with
+`js/README.md` — it walks through how the pieces fit together before you dive
+into any one file.

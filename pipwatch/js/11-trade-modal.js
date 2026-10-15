@@ -36,7 +36,7 @@ function openTradeModal(editId) {
     notes: initial?.notes || '',
     riskPercent: initial?.riskPercent ?? '', rewardMultiple: initial?.rewardMultiple ?? '',
     outcome: initial?.outcome || '', confidence: initial?.confidence || 0, timeframe: initial?.timeframe || '',
-    hasImage: initial?.hasImage || false, imageData: null, imagePreview: null,
+    images: [], imagesChanged: false, // screenshots as data URLs; loaded below when editing
     // Optional multiple take-profit levels, e.g. scaling out in parts.
     // Each is its own leg with its own entry/exit/lot size -- see
     // tradeHitAnyTarget() in helpers.js for how the "outcome" affects
@@ -47,8 +47,8 @@ function openTradeModal(editId) {
   };
   renderTradeModal();
   if (initial?.hasImage) {
-    const data = Storage.getImage(initial.id);
-    if (data) { window._tradeForm.imagePreview = data; renderTradeModal(); }
+    window._tradeForm.images = Storage.getImages(initial.id);
+    renderTradeModal();
   }
 }
 
@@ -157,9 +157,11 @@ function renderTradeModal() {
           <div class="star-picker">${[1,2,3,4,5].map(n => `<button type="button" class="star-btn" onclick="setConfidence(${n})" style="color:${n <= f.confidence ? 'var(--accent)' : 'var(--dim2)'};font-size:20px;">★</button>`).join('')}</div>
         </div>
 
-        <div class="field"><label>Chart image (optional)</label>
-          ${f.imagePreview ? `<div class="img-preview-wrap"><img src="${f.imagePreview}"><button class="img-remove-btn" onclick="removeTradeImage()">×</button></div>`
-            : `<label class="img-upload-label">🖼 <span id="imgUploadLabel">Upload chart screenshot</span><input type="file" accept="image/*" style="display:none;" onchange="handleTradeImage(this.files[0])"></label>`}
+        <div class="field"><label>Chart screenshots (optional${f.images.length ? ` · ${f.images.length} added` : ''})</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;">
+            ${f.images.map((src, i) => `<div class="img-preview-wrap"><img src="${src}" title="Click to enlarge" onclick="openImageViewer(window._tradeForm.images, ${i})"><button class="img-remove-btn" onclick="removeTradeImage(${i})">×</button></div>`).join('')}
+            <label class="img-upload-label">🖼 <span id="imgUploadLabel">${f.images.length ? 'Add more' : 'Upload screenshots'}</span><input type="file" accept="image/*" multiple style="display:none;" onchange="handleTradeImages(this.files)"></label>
+          </div>
         </div>
 
         <div class="field"><label>Notes (optional)</label><textarea id="tf-notes" rows="2" oninput="handleSimpleField('notes',this.value)" placeholder="Setup, mistakes, what you'd do differently…">${escapeHtml(f.notes)}</textarea></div>
@@ -343,19 +345,23 @@ function updateTpOutcome(i, val) {
   renderTradeModal();
 }
 
-function handleTradeImage(file) {
-  if (!file) return;
+// Screenshots: you can pick several files at once, and add more later.
+// Each is shrunk by processImageFile() to keep localStorage usage down.
+function handleTradeImages(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
   const label = document.getElementById('imgUploadLabel'); if (label) label.textContent = 'Processing…';
-  processImageFile(file).then(dataUrl => {
-    window._tradeForm.imageData = dataUrl;
-    window._tradeForm.imagePreview = dataUrl;
+  Promise.allSettled(files.map(processImageFile)).then(results => {
+    const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    window._tradeForm.images.push(...ok);
+    if (ok.length) window._tradeForm.imagesChanged = true;
+    if (ok.length < files.length) showToast("Couldn't read " + (files.length - ok.length) + " of the images.");
     renderTradeModal();
-  }).catch(() => { showToast("Couldn't read that image."); renderTradeModal(); });
+  });
 }
-function removeTradeImage() {
-  window._tradeForm.imageData = 'REMOVE';
-  window._tradeForm.imagePreview = null;
-  window._tradeForm.hasImage = false;
+function removeTradeImage(i) {
+  window._tradeForm.images.splice(i, 1);
+  window._tradeForm.imagesChanged = true;
   renderTradeModal();
 }
 
@@ -365,9 +371,14 @@ function submitTradeForm() {
   if (!f.date || f.pnl === '' || tradeFormHasAnyLotsError(f)) return;
 
   const id = f.id || uid();
-  let hasImage = f.hasImage;
-  if (f.imageData === 'REMOVE') { hasImage = false; Storage.deleteImage(id); }
-  else if (f.imageData) { hasImage = Storage.saveImage(id, f.imageData); if (!hasImage) showToast("Couldn't save the image — it may be too large."); }
+  let imageCount = f.images.length;
+  if (f.imagesChanged) {
+    if (!f.images.length) Storage.deleteImage(id);
+    else if (!Storage.saveImages(id, f.images)) { showToast("Couldn't save the screenshots — browser storage may be full. Try fewer or smaller images."); imageCount = 0; }
+  } else if (f.id) {
+    imageCount = Storage.getImages(id).length; // untouched: keep what's already saved
+  }
+  const hasImage = imageCount > 0;
 
   const usingTps = f.tps.length > 0;
   // Keep any TP row that has data at all, even without an outcome picked
@@ -396,7 +407,7 @@ function submitTradeForm() {
     riskPercent: f.riskPercent === '' ? null : Number(f.riskPercent),
     rewardMultiple: f.rewardMultiple === '' ? null : Number(f.rewardMultiple),
     outcome: f.outcome || null, confidence: f.confidence || null, timeframe: f.timeframe || null,
-    dayOfWeek: dayOfWeek(f.date), hasImage,
+    dayOfWeek: dayOfWeek(f.date), hasImage, imageCount,
     tps,
   });
 }

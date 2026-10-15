@@ -36,8 +36,8 @@ function renderAll() {
   renderTopbar();
   const el = document.getElementById('content');
   if (State.tab === 'dashboard') { el.innerHTML = renderDashboard(); initChart(); }
-  if (State.tab === 'calendar') el.innerHTML = renderCalendar();
-  if (State.tab === 'performance') el.innerHTML = renderPerformance();
+  if (State.tab === 'calendar') { el.innerHTML = renderCalendar(); initDayChart(); }
+  if (State.tab === 'performance') { el.innerHTML = renderPerformance(); initPerfChart(); }
   if (State.tab === 'log') { el.innerHTML = renderLog(); attachLogImageLoads(); }
   if (State.tab === 'accounts') el.innerHTML = renderAccounts();
 }
@@ -83,4 +83,56 @@ function renderTopbar() {
     </div>
     <button class="btn btn-accent" onclick="openTradeModal()">+ Log trade</button>
   `;
+}
+
+/* ---------------------------------- image viewer (lightbox) ---------------------------------- */
+
+// Click a screenshot to see it enlarged. Works for any array of image
+// sources, so both the Trade Log and the trade form use it. It has its own
+// overlay element (not #modalRoot) so opening it from inside the trade form
+// doesn't wipe the form. Close with the X, a click outside the image, or Esc;
+// arrow keys / buttons move between screenshots.
+let viewerImages = [];
+let viewerIndex = 0;
+
+function openImageViewer(images, startIndex) {
+  if (!images || !images.length) return;
+  viewerImages = images.slice();
+  viewerIndex = startIndex || 0;
+  let box = document.getElementById('imageViewer');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'imageViewer';
+    box.className = 'viewer-backdrop';
+    box.onclick = (e) => { if (e.target === box) closeImageViewer(); };
+    document.body.appendChild(box);
+    document.addEventListener('keydown', viewerKeyHandler);
+  }
+  renderImageViewer();
+}
+function renderImageViewer() {
+  const box = document.getElementById('imageViewer');
+  if (!box) return;
+  const multi = viewerImages.length > 1;
+  box.innerHTML = `
+    <button class="viewer-btn viewer-close" onclick="closeImageViewer()" title="Close (Esc)">×</button>
+    ${multi ? `<button class="viewer-btn viewer-prev" onclick="stepImageViewer(-1)" title="Previous">‹</button>
+               <button class="viewer-btn viewer-next" onclick="stepImageViewer(1)" title="Next">›</button>` : ''}
+    <img class="viewer-img" src="${viewerImages[viewerIndex]}" alt="Screenshot ${viewerIndex + 1}">
+    ${multi ? `<div class="viewer-count">${viewerIndex + 1} / ${viewerImages.length}</div>` : ''}
+  `;
+}
+function stepImageViewer(delta) {
+  viewerIndex = (viewerIndex + delta + viewerImages.length) % viewerImages.length;
+  renderImageViewer();
+}
+function closeImageViewer() {
+  const box = document.getElementById('imageViewer');
+  if (box) box.remove();
+  document.removeEventListener('keydown', viewerKeyHandler);
+}
+function viewerKeyHandler(e) {
+  if (e.key === 'Escape') closeImageViewer();
+  else if (e.key === 'ArrowLeft' && viewerImages.length > 1) stepImageViewer(-1);
+  else if (e.key === 'ArrowRight' && viewerImages.length > 1) stepImageViewer(1);
 }

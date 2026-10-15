@@ -9,6 +9,7 @@
 /* ---------------------------------- dashboard ---------------------------------- */
 
 let chartInstance = null;
+let chartTrades = []; // the trades behind each point on the curve, so the tooltip can describe them
 
 function renderDashboard() {
   const stats = computeStats(State.trades);
@@ -66,25 +67,51 @@ function computeChartData() {
   const slice = sorted.slice(Math.max(0, sorted.length - windowSize));
   const labels = [], data = [];
   slice.forEach((t, i) => { running += Number(t.pnl || 0); labels.push(String(sorted.length - windowSize + i + 1)); data.push(Number(running.toFixed(2))); });
-  return { labels, data };
+  return { labels, data, trades: slice };
 }
 
 function initChart() {
   const canvas = document.getElementById('equityChart');
   if (!canvas) return;
-  const { labels, data } = computeChartData();
+  const { labels, data, trades } = computeChartData();
+  chartTrades = trades;
   if (chartInstance) chartInstance.destroy();
   chartInstance = new Chart(canvas.getContext('2d'), {
     type: 'line',
-    data: { labels, datasets: [{ label: 'Cumulative P/L', data, borderColor: '#FFB300', backgroundColor: 'rgba(255,179,0,0.08)', fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2 }] },
+    data: { labels, datasets: [{ label: 'Cumulative P/L', data, borderColor: '#FFB300', backgroundColor: 'rgba(255,179,0,0.08)', fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 6, pointHoverBackgroundColor: '#FFB300', pointHoverBorderColor: '#08090C', pointHoverBorderWidth: 2, borderWidth: 2 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + fmtMoney(ctx.parsed.y) } } },
+      // Hovering anywhere along the curve picks the nearest trade (you no
+      // longer have to land exactly on a point), and a vertical guide line
+      // plus a large tooltip show the equity value at that trade.
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          displayColors: false, padding: 12, backgroundColor: '#12141A', borderColor: '#FFB300', borderWidth: 1,
+          titleColor: '#82879A', titleFont: { size: 11, weight: '500' }, bodyFont: { size: 15, weight: '700' }, footerFont: { size: 11, weight: '400' }, footerColor: '#82879A',
+          callbacks: {
+            title: (items) => { const t = chartTrades[items[0].dataIndex]; return 'Trade #' + items[0].label + (t ? ' · ' + fmtDate(t.date) + ' · ' + t.pair : ''); },
+            label: (ctx) => 'Equity: ' + fmtMoney(ctx.parsed.y),
+            footer: (items) => { const t = chartTrades[items[0].dataIndex]; return t ? 'This trade: ' + (Number(t.pnl) >= 0 ? '+' : '') + fmtMoney(t.pnl) : ''; },
+          },
+        },
+      },
       scales: {
         x: { title: { display: true, text: 'Trade #', color: '#82879A' }, ticks: { color: '#82879A', font: { size: 10 } }, grid: { color: '#20232C' } },
         y: { ticks: { color: '#82879A', font: { size: 10 }, callback: (v) => (v < 0 ? '-$' + Math.abs(v) : '$' + v) }, grid: { color: '#20232C' } },
       },
     },
+    plugins: [{
+      id: 'hoverGuideLine',
+      afterDatasetsDraw(chart) {
+        const active = chart.tooltip && chart.tooltip.getActiveElements ? chart.tooltip.getActiveElements() : [];
+        if (!active.length) return;
+        const x = active[0].element.x, { top, bottom } = chart.chartArea, ctx = chart.ctx;
+        ctx.save(); ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom);
+        ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,179,0,0.5)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore();
+      },
+    }],
   });
 }
 function updateChartWindow(v) {
@@ -97,7 +124,8 @@ function updateChartWindow(v) {
   // update it with no animation, which is instant and stays smooth while
   // dragging.
   if (chartInstance) {
-    const { labels, data } = computeChartData();
+    const { labels, data, trades } = computeChartData();
+    chartTrades = trades;
     chartInstance.data.labels = labels;
     chartInstance.data.datasets[0].data = data;
     chartInstance.update('none');

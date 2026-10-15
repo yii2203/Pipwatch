@@ -25,7 +25,7 @@ function renderLog() {
             <div>
               <div class="log-row" onclick="toggleLogRow('${t.id}')">
                 <span class="mono" style="color:var(--dim);font-size:11px;">${fmtDate(t.date)}</span>
-                <span style="font-weight:500;">${escapeHtml(t.pair)} ${t.hasImage ? '🖼' : ''}</span>
+                <span style="font-weight:500;">${escapeHtml(t.pair)} ${t.hasImage ? '🖼' + (t.imageCount > 1 ? ' ' + t.imageCount : '') : ''}</span>
                 <span style="font-size:11px;color:var(--dim);text-transform:uppercase;">${t.direction}</span>
                 <span>${t.outcome ? `<span class="badge" style="color:${outcomeColor(t.outcome)};border-color:${outcomeColor(t.outcome)};">${outcomeLabel(t.outcome)}</span>` : ''}</span>
                 <span class="right mono" style="font-weight:600;color:${Number(t.pnl) >= 0 ? 'var(--profit)' : 'var(--loss)'};">${fmtMoney(t.pnl)}</span>
@@ -63,7 +63,7 @@ function renderLog() {
                     </div>
                   ` : ''}
                   ${t.notes ? `<div style="font-size:12.5px;margin-bottom:10px;"><div class="detail-label" style="margin-bottom:2px;">Notes</div>${escapeHtml(t.notes)}</div>` : ''}
-                  ${t.hasImage ? `<div><div class="detail-label" style="margin-bottom:4px;">Chart</div><img class="detail-img" id="img-${t.id}" src=""></div>` : ''}
+                  ${t.hasImage ? `<div><div class="detail-label" style="margin-bottom:4px;">Screenshots</div><div id="imgs-${t.id}" style="display:flex;flex-wrap:wrap;gap:10px;"></div></div>` : ''}
                 </div>
               ` : ''}
             </div>
@@ -75,11 +75,20 @@ function renderLog() {
 }
 function toggleLogSort() { State.log.sortDesc = !State.log.sortDesc; renderAll(); }
 function toggleLogRow(id) { State.log.expandedId = State.log.expandedId === id ? null : id; renderAll(); }
+// Screenshots live in localStorage separately from the trade list (they're
+// big), so they're filled into the expanded trade after the page is drawn.
 function attachLogImageLoads() {
-  State.trades.forEach(t => {
-    if (t.hasImage && State.log.expandedId === t.id) {
-      const img = document.getElementById('img-' + t.id);
-      if (img) { const data = Storage.getImage(t.id); if (data) img.src = data; }
-    }
+  const t = State.trades.find(x => x.id === State.log.expandedId);
+  if (!t || !t.hasImage) return;
+  const box = document.getElementById('imgs-' + t.id);
+  if (!box) return;
+  const images = Storage.getImages(t.id);
+  images.forEach((src, i) => {
+    const img = document.createElement('img');
+    img.className = 'detail-img';
+    img.src = src;
+    img.title = 'Click to enlarge';
+    img.onclick = () => openImageViewer(images, i);
+    box.appendChild(img);
   });
 }

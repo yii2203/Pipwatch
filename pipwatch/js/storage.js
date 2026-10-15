@@ -20,12 +20,21 @@ const Storage = {
   deleteTrades(accId) {
     localStorage.removeItem('pw:trades:' + accId);
   },
-  saveImage(tradeId, dataUrl) {
-    try { localStorage.setItem('pw:img:' + tradeId, dataUrl); return true; }
-    catch (e) { console.error('save image failed (storage may be full)', e); return false; }
+  // A trade can have several screenshots. They're stored together as a JSON
+  // array of data URLs under one key. Older versions stored a single bare
+  // data URL string there, so getImages() accepts both and always returns
+  // an array.
+  saveImages(tradeId, dataUrls) {
+    try { localStorage.setItem('pw:img:' + tradeId, JSON.stringify(dataUrls)); return true; }
+    catch (e) { console.error('save images failed (storage may be full)', e); return false; }
   },
-  getImage(tradeId) {
-    return localStorage.getItem('pw:img:' + tradeId);
+  getImages(tradeId) {
+    const raw = localStorage.getItem('pw:img:' + tradeId);
+    if (!raw) return [];
+    if (raw.charAt(0) === '[') {
+      try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : []; } catch (e) { return []; }
+    }
+    return [raw]; // legacy single screenshot
   },
   deleteImage(tradeId) {
     localStorage.removeItem('pw:img:' + tradeId);
@@ -42,8 +51,8 @@ const Storage = {
       data.trades[acc.id] = trades;
       trades.forEach(t => {
         if (t.hasImage) {
-          const img = Storage.getImage(t.id);
-          if (img) data.images[t.id] = img;
+          const imgs = Storage.getImages(t.id);
+          if (imgs.length) data.images[t.id] = imgs;
         }
       });
     });
@@ -62,7 +71,10 @@ const Storage = {
       Storage.saveTrades(acc.id, trades);
     });
     if (data.images && typeof data.images === 'object') {
-      Object.keys(data.images).forEach(tradeId => Storage.saveImage(tradeId, data.images[tradeId]));
+      Object.keys(data.images).forEach(tradeId => {
+        const v = data.images[tradeId];
+        Storage.saveImages(tradeId, Array.isArray(v) ? v : [v]); // older backups hold one string per trade
+      });
     }
     return true;
   },

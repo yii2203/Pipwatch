@@ -7,6 +7,23 @@
 
 /* ---------------------------------- performance ---------------------------------- */
 
+let perfChartInstance = null;
+
+// Bar chart of net P/L for each month of the selected year (called by
+// renderAll() right after the tab's HTML is on the page).
+function initPerfChart() {
+  const year = State.perf.year;
+  const labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const values = labels.map((_, idx) => {
+    const mm = String(idx + 1).padStart(2, '0');
+    const total = State.trades
+      .filter(t => t.date.startsWith(year) && t.date.slice(5, 7) === mm)
+      .reduce((s, t) => s + Number(t.pnl || 0), 0);
+    return Number(total.toFixed(2));
+  });
+  perfChartInstance = drawPnlBarChart('perfMonthChart', labels, values, perfChartInstance);
+}
+
 function renderPerformance() {
   const years = Array.from(new Set(State.trades.map(t => t.date.slice(0, 4))));
   if (!years.length) years.push(String(new Date().getFullYear()));
@@ -15,11 +32,14 @@ function renderPerformance() {
   const year = State.perf.year;
   const yearTrades = State.trades.filter(t => t.date.startsWith(year));
   const yearStats = computeStats(yearTrades);
+  const yearPct = pctChange(periodPnl(year), periodPnl(String(Number(year) - 1)));
   const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const monthRows = monthNames.map((name, idx) => {
     const mm = String(idx + 1).padStart(2, '0');
     const mTrades = yearTrades.filter(t => t.date.slice(5, 7) === mm);
-    return { idx, name, trades: mTrades, stats: computeStats(mTrades) };
+    const prevPrefix = idx === 0 ? `${Number(year) - 1}-12` : `${year}-${String(idx).padStart(2, '0')}`; // previous month (Dec of last year for Jan)
+    const pct = pctChange(periodPnl(`${year}-${mm}`), periodPnl(prevPrefix));
+    return { idx, name, trades: mTrades, stats: computeStats(mTrades), pct };
   });
   function weeksFor(monthTrades) {
     const map = {};
@@ -30,10 +50,14 @@ function renderPerformance() {
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
       <div class="year-tabs">${years.map(y => `<button class="year-tab ${y === year ? 'active' : ''}" onclick="setPerfYear('${y}')">${y}</button>`).join('')}</div>
-      <div class="cal-total ${yearStats.pnl >= 0 ? 'profit' : 'loss'}">${fmtMoney(yearStats.pnl)} in ${year}</div>
+      <div class="cal-total"><span class="${yearStats.pnl >= 0 ? 'profit' : 'loss'}">${fmtMoney(yearStats.pnl)} in ${year}</span> <span style="font-size:12px;font-weight:400;color:var(--dim);">· ${fmtPctChange(yearPct)} vs ${Number(year) - 1}</span></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Monthly P/L · ${year}</div>
+      <div class="chart-wrap"><canvas id="perfMonthChart"></canvas></div>
     </div>
     <div class="month-table">
-      <div class="month-row-head"><span>Month</span><span class="right">Trades</span><span class="right">Win%</span><span class="right">P/L</span></div>
+      <div class="month-row-head"><span>Month</span><span class="right">Trades</span><span class="right">Win%</span><span class="right">P/L</span><span class="right">vs prev month</span></div>
       ${monthRows.map(row => {
         const empty = row.trades.length === 0;
         const isOpen = State.perf.expMonth === row.idx;
@@ -43,6 +67,7 @@ function renderPerformance() {
             <span class="right mono" style="color:var(--dim);">${row.trades.length || '–'}</span>
             <span class="right mono" style="color:var(--dim);">${row.trades.length ? row.stats.winRate.toFixed(0) + '%' : '–'}</span>
             <span class="right mono" style="font-weight:600;color:${empty ? 'var(--dim2)' : (row.stats.pnl >= 0 ? 'var(--profit)' : 'var(--loss)')};">${row.trades.length ? fmtMoney(row.stats.pnl) : '–'}</span>
+            <span class="right mono" style="font-size:12px;">${row.trades.length ? fmtPctChange(row.pct) : ''}</span>
           </button>
           ${isOpen ? `<div class="month-detail">
             ${weeksFor(row.trades).map(w => {

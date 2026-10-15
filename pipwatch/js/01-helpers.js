@@ -28,6 +28,52 @@ function dayOfWeek(d) {
 function ymd(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
 function weekOfMonth(day) { return Math.min(5, Math.ceil(day / 7)); }
 
+// ---- period totals & "% up/down vs the previous period" ----
+
+// Net P/L of all trades whose date starts with prefix ("2026", "2026-10"),
+// or null if there were no trades in that period (so "no data" can be told
+// apart from "broke even").
+function periodPnl(prefix) {
+  const ts = State.trades.filter(t => t.date.startsWith(prefix));
+  return ts.length ? ts.reduce((s, t) => s + Number(t.pnl || 0), 0) : null;
+}
+
+// The Monday (as YYYY-MM-DD) of the week a date falls in — weeks run Mon–Sun.
+function mondayKey(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+  return ymd(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+
+// Net P/L per week (Mon–Sun) across ALL trades, keyed by that week's Monday.
+function weeklyPnlMap() {
+  const map = {};
+  State.trades.forEach(t => { const k = mondayKey(t.date); map[k] = (map[k] || 0) + Number(t.pnl || 0); });
+  return map;
+}
+
+// How much P/L changed versus the previous period, as a percentage of the
+// previous period's P/L size: (now - before) / |before|. Using |before|
+// means going from -$100 to +$50 reads as +150% (an improvement) rather
+// than a confusing negative. Returns null when there's nothing to compare
+// against (no trades, or the previous period was exactly $0).
+function pctChange(cur, prev) {
+  if (cur == null || prev == null || prev === 0) return null;
+  return ((cur - prev) / Math.abs(prev)) * 100;
+}
+function fmtPctChange(pct) {
+  if (pct == null || !isFinite(pct)) return '<span style="color:var(--dim2);" title="No previous-period P/L to compare with">–</span>';
+  const cls = pct > 0 ? 'profit' : pct < 0 ? 'loss' : '';
+  const arrow = pct > 0 ? '▲ ' : pct < 0 ? '▼ ' : '';
+  return `<span class="${cls}">${arrow}${Math.abs(pct).toFixed(1)}%</span>`;
+}
+// Exact-to-the-cent amount with an explicit sign, e.g. +1,234.56 / -80.00
+function fmtSignedCents(n) {
+  const v = Number(n) || 0;
+  return (v < 0 ? '-' : '+') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 // A trade can have multiple take-profit levels (t.tps = [{outcome}, ...]),
 // e.g. scaling out in parts. If ANY level hit its target, the trade counts
 // as a win — even if a later level only broke even or the net $ P/L ends up
@@ -123,4 +169,32 @@ function setInnerHTMLPreserveFocus(containerId, html) {
       if (saved.start != null) { try { el.setSelectionRange(saved.start, saved.end); } catch (e) { /* ignore */ } }
     }
   }
+}
+
+// Draws a P/L bar chart (green bars for profit, red for loss) onto the
+// canvas with the given id. Pass the previous Chart instance (if any) so it
+// gets destroyed first — renderAll() replaces the page HTML, which leaves
+// the old chart attached to a canvas that no longer exists. Returns the new
+// instance so the caller can keep it for next time.
+function drawPnlBarChart(canvasId, labels, values, previousChart) {
+  if (previousChart) previousChart.destroy();
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  return new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{
+      label: 'P/L', data: values,
+      backgroundColor: values.map(v => v >= 0 ? 'rgba(62,207,142,0.75)' : 'rgba(255,92,92,0.75)'),
+      borderColor: values.map(v => v >= 0 ? '#3ECF8E' : '#FF5C5C'),
+      borderWidth: 1, borderRadius: 4,
+    }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + fmtMoney(ctx.parsed.y) } } },
+      scales: {
+        x: { ticks: { color: '#82879A', font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: '#82879A', font: { size: 10 }, callback: (v) => (v < 0 ? '-$' + Math.abs(v) : '$' + v) }, grid: { color: '#20232C' } },
+      },
+    },
+  });
 }

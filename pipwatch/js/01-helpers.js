@@ -68,6 +68,15 @@ function fmtPctChange(pct) {
   const arrow = pct > 0 ? '▲ ' : pct < 0 ? '▼ ' : '';
   return `<span class="${cls}">${arrow}${Math.abs(pct).toFixed(1)}%</span>`;
 }
+// Short signed amount for tight spaces (phone calendar): +1.2k, -85
+function fmtCompactSigned(n) {
+  const v = Number(n) || 0, a = Math.abs(v);
+  return (v < 0 ? '-' : '+') + (a >= 1000 ? (a / 1000).toFixed(1) + 'k' : Math.round(a));
+}
+// Both forms; CSS shows the full-cents one on desktop and the short one on phones.
+function fmtAmtResponsive(n) {
+  return `<span class="amt-full">${fmtSignedCents(n)}</span><span class="amt-short">${fmtCompactSigned(n)}</span>`;
+}
 // Exact-to-the-cent amount with an explicit sign, e.g. +1,234.56 / -80.00
 function fmtSignedCents(n) {
   const v = Number(n) || 0;
@@ -80,12 +89,18 @@ function fmtSignedCents(n) {
 // flat/negative after costs, because you still got paid on part of it.
 // Trades with no tps (or an empty list) fall back to the old rule: win/loss
 // is decided purely by the sign of the overall $ P/L.
+//
+// One rule beats all of those: if the trade's overall Outcome is set to
+// "Breakeven", it's counted as a breakeven no matter what its $ P/L is (a
+// few cents of profit or loss from spread/commission still counts as BE).
+// Breakevens are left out of the win rate entirely.
 function tradeHitAnyTarget(t) {
   return Array.isArray(t.tps) && t.tps.some(tp => tp.outcome === 'target');
 }
-function isWinningTrade(t) { return tradeHitAnyTarget(t) || Number(t.pnl) > 0; }
-function isLosingTrade(t) { return !isWinningTrade(t) && Number(t.pnl) < 0; }
-// Neither a win nor a loss (flat P/L and no TP level hit target).
+function isMarkedBreakeven(t) { return t.outcome === 'breakeven'; }
+function isWinningTrade(t) { return !isMarkedBreakeven(t) && (tradeHitAnyTarget(t) || Number(t.pnl) > 0); }
+function isLosingTrade(t) { return !isMarkedBreakeven(t) && !isWinningTrade(t) && Number(t.pnl) < 0; }
+// Neither a win nor a loss: marked Breakeven, or flat P/L with no TP hit.
 function isBreakevenTrade(t) { return !isWinningTrade(t) && !isLosingTrade(t); }
 
 function computeStats(trades) {
@@ -96,8 +111,11 @@ function computeStats(trades) {
   const breakevens = trades.filter(isBreakevenTrade);
   const decided = wins.length + losses.length; // excludes breakevens — they're neither a win nor a loss
   const winRate = decided ? (wins.length / decided) * 100 : 0;
-  const grossWin = wins.reduce((s, t) => s + Number(t.pnl), 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.pnl), 0));
+  // Profit factor is about dollars, so it uses every trade's actual P/L sign
+  // (including breakevens that closed a few cents up or down), independent
+  // of how a trade is classified for win rate.
+  const grossWin = trades.reduce((s, t) => s + Math.max(0, Number(t.pnl) || 0), 0);
+  const grossLoss = trades.reduce((s, t) => s + Math.max(0, -(Number(t.pnl) || 0)), 0);
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
   return { total, pnl, winRate, profitFactor, wins: wins.length, losses: losses.length, breakevens: breakevens.length };
 }

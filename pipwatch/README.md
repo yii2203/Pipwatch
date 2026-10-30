@@ -19,6 +19,33 @@ No installation, no internet connection required after you've unzipped the folde
 (the chart library is bundled locally in `vendor/`, and the Inter/JetBrains Mono
 fonts will fall back to your system fonts if you're offline).
 
+## Install on your phone (PWA)
+
+Pipwatch can be installed on a phone like a normal app (own icon, full-screen,
+works offline). It needs to be served from a web address — it can't be
+installed from a local file. Steps:
+
+1. **Test on your computer first.** In this folder run `python3 -m http.server 8000`
+   (or `python -m http.server 8000` on Windows), then open
+   http://localhost:8000 — Chrome shows an install icon in the address bar.
+2. **Put the folder on free static hosting.** GitHub Pages, Netlify, or
+   Cloudflare Pages all work; upload the folder contents as-is (no build step).
+   Make sure it's served over **https** (all three do this automatically).
+3. **Open the web address on your phone.**
+   - **iPhone:** use **Safari** → Share → **Add to Home Screen**.
+   - **Android:** Chrome → ⋮ menu → **Install app** / Add to Home screen.
+4. **Move your existing data over:** on your computer, Accounts → Export
+   backup; send the `.json` to your phone (AirDrop, email, cloud drive);
+   in the phone app, Accounts → Import backup.
+
+Things to know: data is stored per device (phone and computer are separate
+journals, synced only by export/import); installed apps keep their storage
+much more reliably than a regular browser tab, but still export a backup
+regularly. When you upload a new version, the app picks it up the next time
+it's opened with a connection (`service-worker.js` fetches fresh files first,
+and keeps saved copies for offline). If you add a new file to the app, list it
+in `APP_FILES` in `service-worker.js`.
+
 ## Where your data lives
 
 Everything — accounts, trades, and chart-screenshot uploads — is saved in your
@@ -65,7 +92,7 @@ exit price, and lot size will auto-fill the profit/loss field using standard
 lot sizes (100,000 units for forex, 100 oz for gold, 5,000 oz for silver, 1 BTC
 for Bitcoin). You can always override the number by editing it directly.
 
-For cross pairs that don't involve USD at all (EURGBP, EURJPY, GBPJPY) or any
+For cross pairs that don't involve USD at all (EURGBP, EURJPY, GBPJPY, GBPCAD, AUDCAD) or any
 custom instrument, the app can't calculate this without a live conversion rate,
 so you'll enter the $ P/L yourself.
 
@@ -89,6 +116,10 @@ overall $ P/L is positive, loss if it's negative.
 
 ## Win rate
 
+Setting a trade's overall **Outcome** to **Breakeven** counts it as BE no matter
+what its $ P/L is (a few cents up or down from spread/commission is fine), and it's
+left out of win rate — this overrides the take-profit rule above.
+
 Win rate only counts decided trades — wins ÷ (wins + losses). Breakeven
 trades aren't a win or a loss, so they're left out of both sides of that
 fraction entirely rather than counting against you. The stat card under
@@ -99,6 +130,9 @@ they're being excluded.
 
 ```
 pipwatch/
+├── manifest.json               — PWA manifest (name, icons, colours) for installing on a phone
+├── service-worker.js           — makes the installed app work offline
+├── icons/                      — app icons
 ├── index.html                  — app shell + the <script> tags that load everything below, in order
 ├── css/styles.css              — all styling
 ├── js/

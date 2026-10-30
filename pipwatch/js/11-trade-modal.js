@@ -128,7 +128,7 @@ function renderTradeModal() {
               </div>
             `; }).join('')}
             <button type="button" class="btn btn-ghost" onclick="addTp()">+ Add another TP level</button>
-            ${tradeHitAnyTarget({ tps: f.tps }) ? `<div class="field-hint" style="color:var(--profit);margin-top:6px;">TP${f.tps.findIndex(tp => tp.outcome === 'target') + 1} hit target — this trade will count as a win.</div>` : ''}
+            ${tradeHitAnyTarget({ tps: f.tps }) && f.outcome !== 'breakeven' ? `<div class="field-hint" style="color:var(--profit);margin-top:6px;">TP${f.tps.findIndex(tp => tp.outcome === 'target') + 1} hit target — this trade will count as a win.</div>` : ''}
           </div>
         `}
 
@@ -147,6 +147,7 @@ function renderTradeModal() {
         <div class="row-2">
           <div class="field"><label>${f.tps.length ? 'Overall outcome' : 'Outcome'} (optional)</label>
             <select onchange="updateTradeField('outcome',this.value)"><option value="">–</option>${OUTCOMES.map(o => `<option value="${o.id}" ${f.outcome === o.id ? 'selected' : ''}>${o.label}</option>`).join('')}</select>
+            ${f.outcome === 'breakeven' ? `<div class="field-hint">Counted as breakeven (BE) even if P/L isn't exactly $0 — doesn't affect win rate.</div>` : ''}
           </div>
           <div class="field"><label>Timeframe (optional)</label>
             <select onchange="updateTradeField('timeframe',this.value)"><option value="">–</option>${TIMEFRAMES.map(tf => `<option value="${tf}" ${f.timeframe === tf ? 'selected' : ''}>${tf}</option>`).join('')}</select>

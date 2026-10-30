@@ -51,7 +51,7 @@ function renderLog() {
                   </div>
                   ${(t.tps && t.tps.length) ? `
                     <div style="font-size:12.5px;margin-bottom:10px;">
-                      <div class="detail-label" style="margin-bottom:4px;">Take-profit levels${tradeHitAnyTarget(t) ? ' · counted as a win' : ''}</div>
+                      <div class="detail-label" style="margin-bottom:4px;">Take-profit levels${tradeHitAnyTarget(t) && isWinningTrade(t) ? ' · counted as a win' : ''}</div>
                       <div style="display:flex;flex-direction:column;gap:4px;">
                         ${t.tps.map((tp, i) => `
                           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">

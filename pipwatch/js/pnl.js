@@ -1,7 +1,7 @@
 // Pair reference lists
 const PAIRS = [
   "EURUSD","GBPUSD","USDJPY","USDCHF","AUDUSD","USDCAD","NZDUSD",
-  "EURGBP","EURJPY","GBPJPY","XAUUSD","XAGUSD","BTCUSD","Custom"
+  "EURGBP","EURJPY","GBPJPY","GBPCAD","AUDCAD","XAUUSD","XAGUSD","BTCUSD","Custom"
 ];
 
 // contract size per 1.0 standard lot, for instruments quoted directly in USD
@@ -21,7 +21,7 @@ const TIMEFRAMES = ["M1","M5","M15","M30","H1","H4","D1","W1"];
 function pnlSupport(pair) {
   if (USD_QUOTE_CONTRACT[pair]) return "usd-quote";
   if (USD_BASE_CONTRACT[pair]) return "usd-base";
-  return "manual"; // crosses (EURGBP, EURJPY, GBPJPY) and custom instruments need a cross rate we don't have
+  return "manual"; // crosses (EURGBP, EURJPY, GBPJPY, GBPCAD, AUDCAD) and custom instruments need a cross rate we don't have
 }
 
 function autoPnL(pair, direction, entry, exit, lots) {

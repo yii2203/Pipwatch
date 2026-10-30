@@ -1,0 +1,218 @@
+/* =====================================================================
+ * HELPERS
+ * ---------------------------------------------------------------------
+ * Small, stateless utility functions used all over the app: formatting
+ * money/dates, computing win-rate/profit-factor stats from a list of
+ * trades, escaping text before it goes into HTML, resizing an uploaded
+ * chart screenshot, and showing a toast notification. Nothing in this
+ * file reads or writes State — it's pure helpers other files call.
+ * ===================================================================== */
+
+/* ---------------------------------- helpers ---------------------------------- */
+
+function uid() { return 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2); }
+
+function fmtMoney(n) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '-' : '';
+  return sign + '$' + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtDate(d) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function dayOfWeek(d) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, { weekday: 'long' });
+}
+function ymd(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
+function weekOfMonth(day) { return Math.min(5, Math.ceil(day / 7)); }
+
+// ---- period totals & "% up/down vs the previous period" ----
+
+// Net P/L of all trades whose date starts with prefix ("2026", "2026-10"),
+// or null if there were no trades in that period (so "no data" can be told
+// apart from "broke even").
+function periodPnl(prefix) {
+  const ts = State.trades.filter(t => t.date.startsWith(prefix));
+  return ts.length ? ts.reduce((s, t) => s + Number(t.pnl || 0), 0) : null;
+}
+
+// The Monday (as YYYY-MM-DD) of the week a date falls in — weeks run Mon–Sun.
+function mondayKey(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+  return ymd(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+
+// Net P/L per week (Mon–Sun) across ALL trades, keyed by that week's Monday.
+function weeklyPnlMap() {
+  const map = {};
+  State.trades.forEach(t => { const k = mondayKey(t.date); map[k] = (map[k] || 0) + Number(t.pnl || 0); });
+  return map;
+}
+
+// How much P/L changed versus the previous period, as a percentage of the
+// previous period's P/L size: (now - before) / |before|. Using |before|
+// means going from -$100 to +$50 reads as +150% (an improvement) rather
+// than a confusing negative. Returns null when there's nothing to compare
+// against (no trades, or the previous period was exactly $0).
+function pctChange(cur, prev) {
+  if (cur == null || prev == null || prev === 0) return null;
+  return ((cur - prev) / Math.abs(prev)) * 100;
+}
+function fmtPctChange(pct) {
+  if (pct == null || !isFinite(pct)) return '<span style="color:var(--dim2);" title="No previous-period P/L to compare with">–</span>';
+  const cls = pct > 0 ? 'profit' : pct < 0 ? 'loss' : '';
+  const arrow = pct > 0 ? '▲ ' : pct < 0 ? '▼ ' : '';
+  return `<span class="${cls}">${arrow}${Math.abs(pct).toFixed(1)}%</span>`;
+}
+// Short signed amount for tight spaces (phone calendar): +1.2k, -85
+function fmtCompactSigned(n) {
+  const v = Number(n) || 0, a = Math.abs(v);
+  return (v < 0 ? '-' : '+') + (a >= 1000 ? (a / 1000).toFixed(1) + 'k' : Math.round(a));
+}
+// Both forms; CSS shows the full-cents one on desktop and the short one on phones.
+function fmtAmtResponsive(n) {
+  return `<span class="amt-full">${fmtSignedCents(n)}</span><span class="amt-short">${fmtCompactSigned(n)}</span>`;
+}
+// Exact-to-the-cent amount with an explicit sign, e.g. +1,234.56 / -80.00
+function fmtSignedCents(n) {
+  const v = Number(n) || 0;
+  return (v < 0 ? '-' : '+') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// A trade can have multiple take-profit levels (t.tps = [{outcome}, ...]),
+// e.g. scaling out in parts. If ANY level hit its target, the trade counts
+// as a win — even if a later level only broke even or the net $ P/L ends up
+// flat/negative after costs, because you still got paid on part of it.
+// Trades with no tps (or an empty list) fall back to the old rule: win/loss
+// is decided purely by the sign of the overall $ P/L.
+//
+// One rule beats all of those: if the trade's overall Outcome is set to
+// "Breakeven", it's counted as a breakeven no matter what its $ P/L is (a
+// few cents of profit or loss from spread/commission still counts as BE).
+// Breakevens are left out of the win rate entirely.
+function tradeHitAnyTarget(t) {
+  return Array.isArray(t.tps) && t.tps.some(tp => tp.outcome === 'target');
+}
+function isMarkedBreakeven(t) { return t.outcome === 'breakeven'; }
+function isWinningTrade(t) { return !isMarkedBreakeven(t) && (tradeHitAnyTarget(t) || Number(t.pnl) > 0); }
+function isLosingTrade(t) { return !isMarkedBreakeven(t) && !isWinningTrade(t) && Number(t.pnl) < 0; }
+// Neither a win nor a loss: marked Breakeven, or flat P/L with no TP hit.
+function isBreakevenTrade(t) { return !isWinningTrade(t) && !isLosingTrade(t); }
+
+function computeStats(trades) {
+  const total = trades.length;
+  const pnl = trades.reduce((s, t) => s + Number(t.pnl || 0), 0);
+  const wins = trades.filter(isWinningTrade);
+  const losses = trades.filter(isLosingTrade);
+  const breakevens = trades.filter(isBreakevenTrade);
+  const decided = wins.length + losses.length; // excludes breakevens — they're neither a win nor a loss
+  const winRate = decided ? (wins.length / decided) * 100 : 0;
+  // Profit factor is about dollars, so it uses every trade's actual P/L sign
+  // (including breakevens that closed a few cents up or down), independent
+  // of how a trade is classified for win rate.
+  const grossWin = trades.reduce((s, t) => s + Math.max(0, Number(t.pnl) || 0), 0);
+  const grossLoss = trades.reduce((s, t) => s + Math.max(0, -(Number(t.pnl) || 0)), 0);
+  const profitFactor = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0);
+  return { total, pnl, winRate, profitFactor, wins: wins.length, losses: losses.length, breakevens: breakevens.length };
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function processImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 900;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale); height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = () => reject(new Error('Could not load image'));
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function outcomeLabel(id) { const o = OUTCOMES.find(x => x.id === id); return o ? o.label : ''; }
+function outcomeColor(id) { return id === 'target' ? 'var(--profit)' : id === 'stoploss' ? 'var(--loss)' : 'var(--dim)'; }
+function starString(v) {
+  if (!v) return '<span style="color:var(--dim2);font-size:12px;">–</span>';
+  let s = ''; for (let i = 1; i <= 5; i++) s += `<span style="color:${i <= v ? 'var(--accent)' : 'var(--dim2)'};">★</span>`;
+  return s;
+}
+
+function showToast(msg) {
+  document.getElementById('toastRoot').innerHTML = `<div class="toast" onclick="this.remove()">${escapeHtml(msg)}</div>`;
+  setTimeout(() => { const t = document.querySelector('.toast'); if (t) t.remove(); }, 5000);
+}
+
+// Rewriting a container's innerHTML while the user is mid-keystroke inside it
+// destroys and recreates the input node, which drops focus (so only one
+// character ever lands before the field unfocuses). This helper remembers
+// which field had focus (and the cursor position) before the rewrite, then
+// restores both afterwards, so forms that re-render on every keystroke
+// (needed here for live validation / auto-calculated fields) stay usable.
+function setInnerHTMLPreserveFocus(containerId, html) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const active = document.activeElement;
+  let saved = null;
+  if (active && active.id && container.contains(active)) {
+    let start = null, end = null;
+    try { start = active.selectionStart; end = active.selectionEnd; } catch (e) { /* not all input types support selection */ }
+    saved = { id: active.id, start, end };
+  }
+  container.innerHTML = html;
+  if (saved) {
+    const el = document.getElementById(saved.id);
+    if (el) {
+      el.focus();
+      if (saved.start != null) { try { el.setSelectionRange(saved.start, saved.end); } catch (e) { /* ignore */ } }
+    }
+  }
+}
+
+// Draws a P/L bar chart (green bars for profit, red for loss) onto the
+// canvas with the given id. Pass the previous Chart instance (if any) so it
+// gets destroyed first — renderAll() replaces the page HTML, which leaves
+// the old chart attached to a canvas that no longer exists. Returns the new
+// instance so the caller can keep it for next time.
+function drawPnlBarChart(canvasId, labels, values, previousChart) {
+  if (previousChart) previousChart.destroy();
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  return new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{
+      label: 'P/L', data: values,
+      backgroundColor: values.map(v => v >= 0 ? 'rgba(62,207,142,0.75)' : 'rgba(255,92,92,0.75)'),
+      borderColor: values.map(v => v >= 0 ? '#3ECF8E' : '#FF5C5C'),
+      borderWidth: 1, borderRadius: 4,
+    }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ' ' + fmtMoney(ctx.parsed.y) } } },
+      scales: {
+        x: { ticks: { color: '#82879A', font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: '#82879A', font: { size: 10 }, callback: (v) => (v < 0 ? '-$' + Math.abs(v) : '$' + v) }, grid: { color: '#20232C' } },
+      },
+    },
+  });
+}

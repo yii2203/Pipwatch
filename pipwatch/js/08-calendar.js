@@ -79,7 +79,7 @@ function renderCalendar() {
             const dayTrades = byDate[dateStr] || [];
             const total = dayTrades.reduce((s, t) => s + Number(t.pnl), 0);
             const has = dayTrades.length > 0;
-            const pnlHtml = has ? `<span class="day-pnl ${total >= 0 ? 'profit' : 'loss'}">${fmtSignedCents(total)}</span>` : '';
+            const pnlHtml = has ? `<span class="day-pnl ${total >= 0 ? 'profit' : 'loss'}">${fmtAmtResponsive(total)}</span>` : '';
             if (!inMonth) return `<div class="cal-cell other-month"><span class="day-num">${dt.getDate()}</span>${pnlHtml}</div>`;
             const cls = ['cal-cell'];
             if (has) cls.push('has-trades', total >= 0 ? 'profit-day' : 'loss-day');
@@ -94,7 +94,7 @@ function renderCalendar() {
           const wPct = pctChange(wTotal, weekMap[prevKey]);
           return dayHtml + `<div class="cal-cell cal-week ${hasWeek ? (wTotal >= 0 ? 'profit-day' : 'loss-day') : ''}">
             <span class="day-num">Week total</span>
-            ${hasWeek ? `<span class="day-pnl ${wTotal >= 0 ? 'profit' : 'loss'}">${fmtSignedCents(wTotal)}</span><span class="day-pct">${fmtPctChange(wPct)} <span style="color:var(--dim2);">vs prev</span></span>` : '<span class="day-pnl" style="color:var(--dim2);">–</span>'}
+            ${hasWeek ? `<span class="day-pnl ${wTotal >= 0 ? 'profit' : 'loss'}">${fmtAmtResponsive(wTotal)}</span><span class="day-pct">${fmtPctChange(wPct)} <span class="hide-mobile" style="color:var(--dim2);">vs prev</span></span>` : '<span class="day-pnl" style="color:var(--dim2);">–</span>'}
           </div>`;
         }).join('')}
       </div>

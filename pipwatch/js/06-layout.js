@@ -46,8 +46,8 @@ function renderSidebar() {
   const el = document.getElementById('sidebar');
   const acc = State.accounts.find(a => a.id === State.currentAccountId);
   const navItems = [
-    ['dashboard', 'Dashboard'], ['calendar', 'Calendar'], ['performance', 'Performance'],
-    ['log', 'Trade Log'], ['accounts', 'Accounts'],
+    ['dashboard', '▦', 'Dashboard'], ['calendar', '📅', 'Calendar'], ['performance', '📈', 'Performance'],
+    ['log', '📓', 'Trade Log'], ['accounts', '💼', 'Accounts'],
   ];
   el.innerHTML = `
     <div class="brand"><span class="brand-dot"></span><span class="brand-name">PIPWATCH</span></div>
@@ -65,7 +65,7 @@ function renderSidebar() {
           <button class="new-account" onclick="openAccountModal()">+ New account</button>
         </div>` : ''}
     </div>
-    <nav class="nav">${navItems.map(([id, label]) => `<button class="nav-item ${State.tab === id ? 'active' : ''}" onclick="setTab('${id}')">${label}</button>`).join('')}</nav>
+    <nav class="nav">${navItems.map(([id, icon, label]) => `<button class="nav-item ${State.tab === id ? 'active' : ''}" onclick="setTab('${id}')"><span class="nav-icon">${icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav>
     <div class="sidebar-footer">${State.accounts.length} account${State.accounts.length !== 1 ? 's' : ''}</div>
   `;
 }

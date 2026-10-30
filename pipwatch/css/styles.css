@@ -191,3 +191,64 @@ svg.icon { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-w
 .viewer-prev { left: 16px; top: 50%; transform: translateY(-50%); }
 .viewer-next { right: 16px; top: 50%; transform: translateY(-50%); }
 .viewer-count { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #ccc; }
+
+/* -------- responsive amounts (calendar) -------- */
+.amt-short { display: none; }
+
+/* =====================================================================
+ * PHONE LAYOUT (screens up to 760px wide)
+ * Sidebar becomes a slim account bar on top + a tab bar pinned to the
+ * bottom; paddings shrink; the calendar, log and month table are
+ * condensed so everything fits without sideways scrolling.
+ * ===================================================================== */
+@media (max-width: 760px) {
+  .shell { flex-direction: column; }
+  .sidebar { width: 100%; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--border); padding-top: env(safe-area-inset-top); }
+  .brand { padding: 10px 8px 10px 14px; border-bottom: none; }
+  .brand-name { display: none; }
+  .account-picker { flex: 1; min-width: 0; border-bottom: none; padding: 8px 12px 8px 4px; }
+  .account-dropdown { left: 4px; right: 12px; }
+  .sidebar-footer { display: none; }
+
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; flex-direction: row; gap: 0; padding: 0 0 env(safe-area-inset-bottom); background: var(--panel-2); border-top: 1px solid var(--border); }
+  .nav-item { flex: 1; flex-direction: column; justify-content: center; gap: 2px; padding: 8px 2px; font-size: 10px; border-radius: 0; text-align: center; }
+  .nav-item .nav-icon { font-size: 18px; line-height: 1.1; }
+  .nav-item.active { background: none; color: var(--accent); }
+
+  .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .topbar { padding: 10px 14px; top: 0; }
+  .content { padding: 14px 12px 24px; }
+  .toast { bottom: calc(76px + env(safe-area-inset-bottom)); left: 12px; right: 12px; text-align: center; }
+
+  /* iOS zooms the page when you tap an input under 16px */
+  .field input, .field select, .field textarea { font-size: 16px; }
+  .modal-backdrop { padding: 8px; align-items: flex-end; }
+  .modal, .modal.wide { max-height: 94vh; }
+
+  .stat-value { font-size: 17px; }
+  .chart-wrap { height: 220px; }
+  .cal-header { flex-wrap: wrap; gap: 6px; }
+  .cal-month-label { width: auto; min-width: 120px; }
+
+  /* calendar: tighter grid, short amounts, no "vs prev" label */
+  .cal-grid { gap: 3px; }
+  .cal-grid.with-week { grid-template-columns: repeat(7, 1fr) 1.35fr; }
+  .cal-cell { min-height: 52px; padding: 4px; }
+  .cal-cell .day-num { font-size: 10px; }
+  .cal-cell .day-pnl, .cal-cell .day-pct { font-size: 9px; }
+  .cal-dow { font-size: 9px; }
+  .amt-full { display: none; }
+  .amt-short { display: inline; }
+  .hide-mobile { display: none; }
+
+  /* Performance month table: five columns, smaller */
+  .month-row-head, .month-row { grid-template-columns: 1.3fr 0.6fr 0.6fr 1fr 1fr; padding-left: 10px; padding-right: 10px; font-size: 11.5px; gap: 2px; }
+  .month-row-head { font-size: 10px; }
+
+  /* Trade log: date, pair, P/L, actions (direction + outcome hidden) */
+  .log-head, .log-row { grid-template-columns: 70px 1fr 84px 62px; gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .log-head > :nth-child(3), .log-head > :nth-child(4), .log-row > :nth-child(3), .log-row > :nth-child(4) { display: none; }
+  .log-row > :nth-child(1) { font-size: 10px; }
+  .detail-grid { grid-template-columns: repeat(2, 1fr); }
+  .viewer-prev { left: 6px; } .viewer-next { right: 6px; }
+}

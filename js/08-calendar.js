@@ -106,8 +106,11 @@ function renderCalendar() {
     </div>
     ${sel ? `
       <div class="panel">
-        <div class="panel-title">${fmtDate(sel)} · ${dayOfWeek(sel)}</div>
-        ${selTrades.length === 0 ? `<p style="font-size:13px;color:var(--dim);">No trades logged this day.</p>` :
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+          <div class="panel-title" style="margin:0;">${fmtDate(sel)} · ${dayOfWeek(sel)}</div>
+          <button class="btn btn-accent" onclick="openTradeModal(null,'${sel}')">+ Log trade on this day</button>
+        </div>
+        ${selTrades.length === 0 ? `<p style="font-size:13px;color:var(--dim);">No trades logged this day — use the button above to add one.</p>` :
           selTrades.map(t => `
             <div class="trade-line" style="border-bottom:1px solid var(--border);padding:6px 0;">
               <span><b>${escapeHtml(t.pair)}</b> <span style="font-size:11px;color:var(--dim);text-transform:uppercase;">${t.direction}</span> ${t.notes ? `<span style="font-size:11px;color:var(--dim2);">${escapeHtml(t.notes)}</span>` : ''}</span>

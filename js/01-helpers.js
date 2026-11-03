@@ -28,6 +28,13 @@ function dayOfWeek(d) {
 function ymd(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
 function weekOfMonth(day) { return Math.min(5, Math.ceil(day / 7)); }
 
+// Today's date as YYYY-MM-DD in the user's own timezone. (new Date().toISOString()
+// is UTC, so for people ahead of UTC it returns *yesterday* in the morning.)
+function localDateStr() {
+  const d = new Date();
+  return ymd(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 // ---- period totals & "% up/down vs the previous period" ----
 
 // Net P/L of all trades whose date starts with prefix ("2026", "2026-10"),

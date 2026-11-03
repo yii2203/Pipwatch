@@ -1,41 +1,16 @@
-# Pipwatch is a static, client-side app — there are no API keys, server
-# secrets, or .env files to worry about. Everything it stores (accounts,
-# trades, chart screenshots) lives in the browser's localStorage, never in
-# this folder, so a plain `git add .` is normally safe. This file exists to
-# catch the few ways real trading data could still end up in the repo.
-
-# Backup files exported from the Accounts tab. These contain your full
-# trade history (entries, exits, P/L, notes) and any attached chart
-# screenshots — never commit one of these to a public (or shared) repo.
-pipwatch-backup-*.json
-*.backup.json
-backups/
-
-# A leftover profile folder from an older version of the launch scripts
-# that opened the app in a dedicated browser window. Harmless, but it's
-# local browser-profile data, not app source, so it doesn't belong in git.
-.pipwatch-app-profile/
-
-# OS-generated junk
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Desktop.ini
-
-# Editor/IDE folders
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Just in case you ever add a build step, a local server, or any script
-# that reads credentials from the environment later on:
-.env
-.env.*
-*.local
-node_modules/
-npm-debug.log*
+{
+  "name": "Pipwatch — Forex Trading Journal",
+  "short_name": "Pipwatch",
+  "description": "A private forex trading journal. Your data stays on your device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#08090C",
+  "theme_color": "#08090C",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -23,14 +23,17 @@
 
 /* ---------------------------------- modal: trade ---------------------------------- */
 
-function openTradeModal(editId) {
+// presetDate (YYYY-MM-DD) pre-fills the date, e.g. when logging from a day on
+// the calendar. With no preset: if you're on the Calendar tab with a day
+// selected, that day is used; otherwise it defaults to today.
+function openTradeModal(editId, presetDate) {
   const initial = editId ? State.trades.find(t => t.id === editId) : null;
   window._tradeForm = {
     id: initial?.id || null,
     pair: initial ? (PAIRS.includes(initial.pair) ? initial.pair : 'Custom') : 'EURUSD',
     customPair: initial && !PAIRS.includes(initial.pair) ? initial.pair : '',
     direction: initial?.direction || 'buy',
-    date: initial?.date || new Date().toISOString().slice(0, 10),
+    date: initial?.date || presetDate || (State.tab === 'calendar' && State.cal.selected) || localDateStr(),
     entry: initial?.entry ?? '', exit: initial?.exit ?? '', lots: initial?.lots ?? '',
     pnl: initial?.pnl ?? '', pnlTouched: !!initial,
     notes: initial?.notes || '',
